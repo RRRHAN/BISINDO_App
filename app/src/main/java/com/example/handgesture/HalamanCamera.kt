@@ -15,10 +15,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,7 +31,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import java.util.concurrent.Executors
 
@@ -51,6 +50,36 @@ fun halamanCamera(paddingValues: PaddingValues) {
                 Manifest.permission.CAMERA
             ) == PackageManager.PERMISSION_GRANTED
         )
+    }
+
+    val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
+
+    val classifierHelper = remember { GestureClassifierHelper(context) }
+
+    val handLandmarkerHelper = remember {
+        HandLandmarkerHelper(
+            context = context,
+            resultListener = { result ->
+                val prediction = classifierHelper.classify(result)
+                gestureSekarang = if (prediction != null) {
+                    val (label, confidence) = prediction
+                    "$label (${String.format("%.2f", confidence)})"
+                } else {
+                    "None"
+                }
+            },
+            errorListener = { error ->
+                Log.e("Gesture", "Error: $error")
+            }
+        )
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            cameraExecutor.shutdown()
+            handLandmarkerHelper.close()
+            classifierHelper.close()
+        }
     }
 
     val launcher = rememberLauncherForActivityResult(
@@ -73,46 +102,24 @@ fun halamanCamera(paddingValues: PaddingValues) {
 
                     cameraProviderFuture.addListener({
                         val cameraProvider = cameraProviderFuture.get()
-                        // 1. Preview Use Case
+
                         val preview = Preview.Builder().build()
                         preview.setSurfaceProvider(previewView.surfaceProvider)
 
-                        // 2. Image Analysis Use Case
                         val imageAnalysis = ImageAnalysis.Builder()
                             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                             .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
                             .build()
 
-                        val gestureHelper = GestureRecognizerHelper(
-                            context = ctx,
-                            resultListener = { result ->
-                                // Update UI on Main Thread
-                                val category = result.gestures().firstOrNull()?.firstOrNull()
-                                gestureSekarang = if (category != null) {
-                                    "${category.categoryName()} (${
-                                        String.format(
-                                            "%.2f",
-                                            category.score()
-                                        )
-                                    })"
-                                } else {
-                                    "None"
-                                }
-                            },
-                            errorListener = { error ->
-                                Log.e("Gesture", "Error: $error")
-                            }
-                        )
-                        imageAnalysis.setAnalyzer(Executors.newSingleThreadExecutor()) { imageProxy ->
-                            gestureHelper.recognizeLiveStream(imageProxy)
-                            imageProxy.close() // Important: Close frame!
+                        imageAnalysis.setAnalyzer(cameraExecutor) { imageProxy ->
+                            handLandmarkerHelper.detectLiveStream(imageProxy)
                         }
 
                         try {
                             cameraProvider.unbindAll()
                             cameraProvider.bindToLifecycle(
                                 lifecycleOwner,
-                                CameraSelector.DEFAULT_FRONT_CAMERA,
+                                CameraSelector.DEFAULT_BACK_CAMERA,
                                 preview,
                                 imageAnalysis
                             )
@@ -139,14 +146,9 @@ fun halamanCamera(paddingValues: PaddingValues) {
                 )
             }
         }
-
-
     } else {
-        // Fallback text if permission denied
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("Camera permission required")
         }
-
-
     }
 }

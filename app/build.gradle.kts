@@ -35,6 +35,10 @@ android {
     buildFeatures {
         compose = true
     }
+
+    androidResources {
+        noCompress += listOf("task", "tflite")
+    }
 }
 
 dependencies {
@@ -54,6 +58,8 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
+    implementation("org.tensorflow:tensorflow-lite:2.16.1")
+
 
 //    camera
     implementation("androidx.camera:camera-core:1.4.0")
@@ -61,5 +67,5 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.4.0")
     implementation("androidx.camera:camera-view:1.4.0")
 
-    implementation("com.google.mediapipe:tasks-vision:0.10.0")
+    implementation("com.google.mediapipe:tasks-vision:0.10.21")
 }
